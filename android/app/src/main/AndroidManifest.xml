@@ -3,6 +3,8 @@
     <application
         android:label="个人决策助手"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

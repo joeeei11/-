@@ -5,13 +5,18 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'guide.dart';
 import 'guide_update.dart';
+import 'model_connection.dart';
+import 'profile.dart';
 
 void main() => runApp(const DecisionGuideApp());
 
 class DecisionGuideApp extends StatelessWidget {
-  const DecisionGuideApp({super.key, this.guide});
+  const DecisionGuideApp(
+      {super.key, this.guide, this.profileStore, this.modelStore});
 
   final GuidePackage? guide;
+  final ProfileStore? profileStore;
+  final ModelStore? modelStore;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -29,14 +34,17 @@ class DecisionGuideApp extends StatelessWidget {
             centerTitle: false,
           ),
         ),
-        home: HomeScreen(guide: guide),
+        home: HomeScreen(
+            guide: guide, profileStore: profileStore, modelStore: modelStore),
       );
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.guide});
+  const HomeScreen({super.key, this.guide, this.profileStore, this.modelStore});
 
   final GuidePackage? guide;
+  final ProfileStore? profileStore;
+  final ModelStore? modelStore;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -55,8 +63,13 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           const _PendingPage(icon: Icons.chat_bubble_outline, title: '咨询'),
           const _PendingPage(icon: Icons.bookmark_outline, title: '记录'),
-          const _PendingPage(icon: Icons.person_outline, title: '资料'),
-          GuideScreen(initialGuide: widget.guide),
+          selectedIndex == 2
+              ? ProfileScreen(
+                  store: widget.profileStore, modelStore: widget.modelStore)
+              : const SizedBox.shrink(),
+          selectedIndex == 3
+              ? GuideScreen(initialGuide: widget.guide)
+              : const SizedBox.shrink(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
