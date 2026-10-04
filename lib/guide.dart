@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 class GuidePackage {
   const GuidePackage({
@@ -22,10 +24,34 @@ class GuidePackage {
   final List<GuideEntry> entries;
 
   static Future<GuidePackage> load() async {
+    final installed =
+        File('${(await getApplicationSupportDirectory()).path}/guide.json');
+    if (await installed.exists()) {
+      try {
+        return GuidePackage.parse(await installed.readAsString());
+      } on FormatException {
+        // A damaged update must not hide the bundled offline guide.
+      } on FileSystemException {
+        // The bundled guide is still usable if local storage cannot be read.
+      }
+    }
     final bytes = await rootBundle.load('assets/guide.json');
-    final data = jsonDecode(utf8.decode(bytes.buffer.asUint8List()))
-        as Map<String, dynamic>;
-    return GuidePackage(
+    return GuidePackage.parse(utf8.decode(bytes.buffer.asUint8List()));
+  }
+
+  static GuidePackage parse(String contents) {
+    try {
+      return _parse(contents);
+    } on FormatException {
+      rethrow;
+    } catch (_) {
+      throw const FormatException('Invalid guide package');
+    }
+  }
+
+  static GuidePackage _parse(String contents) {
+    final data = jsonDecode(contents) as Map<String, dynamic>;
+    final guide = GuidePackage(
       version: data['version'] as String,
       updatedAt: data['updatedAt'] as String,
       project: data['project'] as String,
@@ -36,6 +62,26 @@ class GuidePackage {
           .map((item) => GuideEntry.fromJson(item as Map<String, dynamic>))
           .toList(growable: false),
     );
+    if (guide.version.trim().isEmpty ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(guide.updatedAt) ||
+        guide.project != 'HowToLiveBetter' ||
+        guide.projectUrl != 'https://github.com/eternity4719/HowToLiveBetter' ||
+        guide.license != 'CC BY 4.0' ||
+        guide.licenseUrl != 'https://creativecommons.org/licenses/by/4.0/' ||
+        guide.entries.isEmpty ||
+        guide.entries.map((entry) => entry.id).toSet().length !=
+            guide.entries.length ||
+        guide.entries.any((entry) =>
+            entry.id.isEmpty ||
+            entry.title.isEmpty ||
+            entry.chapter.isEmpty ||
+            entry.summary.isEmpty ||
+            entry.cost.isEmpty ||
+            entry.evidence.isEmpty ||
+            entry.source.isEmpty)) {
+      throw const FormatException('Invalid guide package');
+    }
+    return guide;
   }
 
   List<GuideEntry> search(String query, {String? chapter}) {

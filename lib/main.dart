@@ -1,11 +1,17 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'guide.dart';
+import 'guide_update.dart';
 
 void main() => runApp(const DecisionGuideApp());
 
 class DecisionGuideApp extends StatelessWidget {
-  const DecisionGuideApp({super.key});
+  const DecisionGuideApp({super.key, this.guide});
+
+  final GuidePackage? guide;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -23,12 +29,14 @@ class DecisionGuideApp extends StatelessWidget {
             centerTitle: false,
           ),
         ),
-        home: const HomeScreen(),
+        home: HomeScreen(guide: guide),
       );
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.guide});
+
+  final GuidePackage? guide;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -44,11 +52,11 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(title: Text(labels[selectedIndex])),
       body: IndexedStack(
         index: selectedIndex,
-        children: const [
-          _PendingPage(icon: Icons.chat_bubble_outline, title: '咨询'),
-          _PendingPage(icon: Icons.bookmark_outline, title: '记录'),
-          _PendingPage(icon: Icons.person_outline, title: '资料'),
-          GuideScreen(),
+        children: [
+          const _PendingPage(icon: Icons.chat_bubble_outline, title: '咨询'),
+          const _PendingPage(icon: Icons.bookmark_outline, title: '记录'),
+          const _PendingPage(icon: Icons.person_outline, title: '资料'),
+          GuideScreen(initialGuide: widget.guide),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -88,14 +96,18 @@ class _PendingPage extends StatelessWidget {
 }
 
 class GuideScreen extends StatefulWidget {
-  const GuideScreen({super.key});
+  const GuideScreen({super.key, this.initialGuide});
+
+  final GuidePackage? initialGuide;
 
   @override
   State<GuideScreen> createState() => _GuideScreenState();
 }
 
 class _GuideScreenState extends State<GuideScreen> {
-  late final Future<GuidePackage> package = GuidePackage.load();
+  late Future<GuidePackage> package = widget.initialGuide == null
+      ? GuidePackage.load()
+      : Future.value(widget.initialGuide);
   final queryController = TextEditingController();
   String? chapter;
 
@@ -212,18 +224,157 @@ class _GuideScreenState extends State<GuideScreen> {
                         },
                       ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                child: Text(
-                  '${guide.project} · ${guide.license} · 版本 ${guide.version.substring(0, 7)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+              ListTile(
+                dense: true,
+                title: Text('${guide.project} · ${guide.license}'),
+                subtitle: Text('版本 ${guide.version}'),
+                trailing: const Icon(Icons.info_outline),
+                onTap: () async {
+                  final installed =
+                      await Navigator.of(context).push<GuidePackage>(
+                    MaterialPageRoute(
+                        builder: (_) => GuideInfoScreen(guide: guide)),
+                  );
+                  if (installed != null && mounted) {
+                    setState(() {
+                      chapter = null;
+                      package = Future.value(installed);
+                    });
+                  }
+                },
               ),
             ],
           );
         },
+      );
+}
+
+class GuideInfoScreen extends StatefulWidget {
+  const GuideInfoScreen({super.key, required this.guide});
+
+  final GuidePackage guide;
+
+  @override
+  State<GuideInfoScreen> createState() => _GuideInfoScreenState();
+}
+
+class _GuideInfoScreenState extends State<GuideInfoScreen> {
+  final updater = GuideUpdater();
+  GuideRelease? release;
+  bool busy = false;
+  String? message;
+
+  Future<void> check() async {
+    setState(() {
+      busy = true;
+      release = null;
+      message = null;
+    });
+    try {
+      final latest = await updater.checkLatest();
+      if (!mounted) return;
+      setState(() {
+        if (latest.version == widget.guide.version) {
+          message = '当前已是官方最新版本。';
+        } else {
+          release = latest;
+        }
+      });
+    } on HttpException catch (error) {
+      if (mounted) {
+        setState(() => message = error.message.contains('404')
+            ? '官方暂未发布可用指南包。'
+            : '检查失败（${error.message}），请稍后重试。');
+      }
+    } on NoCompatibleGuideRelease {
+      if (mounted) {
+        setState(() => message = '官方 Release 暂无兼容的指南包。');
+      }
+    } catch (_) {
+      if (mounted) setState(() => message = '检查失败，请确认网络后重试。');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> install() async {
+    final selected = release;
+    if (selected == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('安装指南更新？'),
+        content: Text('当前版本：${widget.guide.version}\n官方版本：${selected.version}'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('下载并安装')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      final guide = await updater.install(selected);
+      if (mounted) Navigator.pop(context, guide);
+    } catch (_) {
+      if (mounted) setState(() => message = '安装失败，原有指南仍可离线使用。');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('指南包信息')),
+        body: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            _Detail(label: '当前版本', value: widget.guide.version),
+            _Detail(label: '更新日期', value: widget.guide.updatedAt),
+            _Detail(label: '项目署名', value: widget.guide.project),
+            TextButton.icon(
+              onPressed: () => launchUrl(Uri.parse(widget.guide.projectUrl),
+                  mode: LaunchMode.externalApplication),
+              icon: const Icon(Icons.open_in_new),
+              label: Text(widget.guide.projectUrl),
+            ),
+            _Detail(label: '许可', value: widget.guide.license),
+            TextButton.icon(
+              onPressed: () => launchUrl(Uri.parse(widget.guide.licenseUrl),
+                  mode: LaunchMode.externalApplication),
+              icon: const Icon(Icons.open_in_new),
+              label: Text(widget.guide.licenseUrl),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: busy ? null : check,
+              icon: const Icon(Icons.refresh),
+              label: const Text('检查官方更新'),
+            ),
+            if (busy) const Center(child: CircularProgressIndicator()),
+            if (message != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(message!),
+              ),
+            if (release != null) ...[
+              const SizedBox(height: 12),
+              Text('官方版本：${release!.version}'),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: busy ? null : install,
+                child: const Text('查看并安装更新'),
+              ),
+            ],
+          ],
+        ),
       );
 }
 
