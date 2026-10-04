@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'guide.dart';
 import 'guide_update.dart';
+import 'consultation.dart';
 import 'model_connection.dart';
 import 'profile.dart';
 
@@ -61,7 +62,15 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: selectedIndex,
         children: [
-          const _PendingPage(icon: Icons.chat_bubble_outline, title: '咨询'),
+          ConsultationScreen(
+            guide: widget.guide,
+            modelStore: widget.modelStore,
+            onBrowseGuide: () => setState(() => selectedIndex = 3),
+            onOpenEntry: (entry, guide) => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                  builder: (_) => GuideEntryScreen(entry: entry, guide: guide)),
+            ),
+          ),
           const _PendingPage(icon: Icons.bookmark_outline, title: '记录'),
           selectedIndex == 2
               ? ProfileScreen(
