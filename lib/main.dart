@@ -65,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ConsultationScreen(
             guide: widget.guide,
             modelStore: widget.modelStore,
+            profileStore: widget.profileStore,
             onBrowseGuide: () => setState(() => selectedIndex = 3),
             onOpenEntry: (entry, guide) => Navigator.of(context).push(
               MaterialPageRoute<void>(
