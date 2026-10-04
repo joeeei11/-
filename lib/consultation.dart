@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'guide.dart';
+import 'decision_records.dart';
 import 'model_connection.dart';
 import 'profile.dart';
 
@@ -394,6 +395,8 @@ class ConsultationScreen extends StatefulWidget {
       this.modelStore,
       this.profileStore,
       this.draftStore,
+      this.recordStore,
+      this.reminder,
       required this.onBrowseGuide,
       required this.onOpenEntry,
       this.service});
@@ -402,6 +405,8 @@ class ConsultationScreen extends StatefulWidget {
   final ModelStore? modelStore;
   final ProfileStore? profileStore;
   final QuestionDraftStore? draftStore;
+  final DecisionRecordStore? recordStore;
+  final ReviewReminder? reminder;
   final VoidCallback onBrowseGuide;
   final void Function(GuideEntry entry, GuidePackage guide) onOpenEntry;
   final ConsultationService? service;
@@ -418,6 +423,10 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       ConsultationService(ModelClient(widget.modelStore ?? SecureModelStore()));
   late final ProfileStore profiles =
       widget.profileStore ?? SecureProfileStore();
+  late final DecisionRecordStore records =
+      widget.recordStore ?? SecureDecisionRecordStore();
+  late final ReviewReminder reminder =
+      widget.reminder ?? AndroidReviewReminder();
   final Map<ProfileCategory, TextEditingController> profileControllers = {};
   final Set<ProfileCategory> selectedCategories = {};
   List<ProfileClarification> clarifications = [];
@@ -425,6 +434,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   bool busy = false;
   String? message;
   DecisionAnswer? answer;
+  String? answeredQuestion;
+  Map<ProfileCategory, String> usedProfileSnapshot = {};
+  String? savedAnswerId;
   GuidePackage? answerGuide;
   RiskRoute? emergencyRoute;
   bool fireEmergency = false;
@@ -490,6 +502,12 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                   route: result.route,
                 );
           answerGuide = guide;
+          answeredQuestion = question;
+          usedProfileSnapshot = {
+            for (final field in result.usedProfileFields)
+              if (selected.containsKey(field)) field: selected[field]!,
+          };
+          savedAnswerId = null;
           pendingQuestion = null;
           clarifications = [];
         });
@@ -513,6 +531,55 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       }
     } catch (_) {
       if (mounted) setState(() => message = '请求失败，草稿保存也失败；请暂时保留此页面。');
+    }
+  }
+
+  Future<void> saveDecision() async {
+    final currentAnswer = answer;
+    final guide = answerGuide;
+    if (currentAnswer == null ||
+        guide == null ||
+        busy ||
+        savedAnswerId != null) {
+      return;
+    }
+    final edited = await showDecisionEditor(context,
+        initialChoice: currentAnswer.conclusion,
+        initialDate: null,
+        suggestedDate: currentAnswer.reviewDate);
+    if (edited == null || !mounted) return;
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      final record = DecisionRecord(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        question: answeredQuestion!,
+        answer: currentAnswer,
+        finalChoice: edited.$1,
+        reviewDate: edited.$2,
+        guideVersion: guide.version,
+        profileSnapshot: Map.of(usedProfileSnapshot),
+        savedAt: DateTime.now(),
+      );
+      await records.save(record);
+      if (mounted) setState(() => savedAnswerId = record.id);
+      bool scheduled;
+      try {
+        scheduled = await syncReviewReminder(record, records, reminder);
+      } catch (_) {
+        scheduled = false;
+      }
+      if (mounted) {
+        setState(() {
+          message = scheduled ? '决策已保存，可在“记录”查看。' : '决策已保存；通知未开启，请在系统设置中允许通知。';
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => message = '保存失败，请重试。');
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -544,6 +611,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     if (route == RiskRoute.urgent) {
       setState(() {
         answer = null;
+        answeredQuestion = null;
         answerGuide = null;
         pendingQuestion = null;
         clarifications = [];
@@ -562,6 +630,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       busy = true;
       message = null;
       answer = null;
+      answeredQuestion = null;
       emergencyRoute = null;
       clarifications = [];
       pendingQuestion = null;
@@ -696,6 +765,14 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                 answer: answer!,
                 guide: answerGuide!,
                 onOpenEntry: widget.onOpenEntry),
+          if (answer != null && answerGuide != null) ...[
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: busy || savedAnswerId != null ? null : saveDecision,
+              icon: const Icon(Icons.bookmark_add_outlined),
+              label: Text(savedAnswerId == null ? '保存为决策记录' : '已保存到记录'),
+            ),
+          ],
         ],
       );
 }

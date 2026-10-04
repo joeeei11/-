@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'model_connection.dart';
+import 'backup.dart';
+import 'decision_records.dart';
 
 enum ProfileCategory {
   basics('基本情况'),
@@ -99,10 +101,17 @@ class SecureProfileStore implements ProfileStore {
 }
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, this.store, this.modelStore});
+  const ProfileScreen(
+      {super.key,
+      this.store,
+      this.modelStore,
+      this.recordStore,
+      this.reminder});
 
   final ProfileStore? store;
   final ModelStore? modelStore;
+  final DecisionRecordStore? recordStore;
+  final ReviewReminder? reminder;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -197,6 +206,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ModelConnectionScreen(store: widget.modelStore),
                   ),
                 ),
+              ),
+              ListTile(
+                title: const Text('备份与恢复'),
+                subtitle: const Text('导出或导入加密备份'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  await Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => BackupScreen(
+                            service: BackupService(
+                          store,
+                          widget.recordStore ?? SecureDecisionRecordStore(),
+                          widget.modelStore ?? SecureModelStore(),
+                          widget.reminder ?? AndroidReviewReminder(),
+                        )),
+                      ));
+                  if (mounted) refresh();
+                },
               ),
             ],
           );

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'guide.dart';
 import 'guide_update.dart';
 import 'consultation.dart';
+import 'decision_records.dart';
 import 'model_connection.dart';
 import 'profile.dart';
 
@@ -13,11 +14,18 @@ void main() => runApp(const DecisionGuideApp());
 
 class DecisionGuideApp extends StatelessWidget {
   const DecisionGuideApp(
-      {super.key, this.guide, this.profileStore, this.modelStore});
+      {super.key,
+      this.guide,
+      this.profileStore,
+      this.modelStore,
+      this.recordStore,
+      this.reminder});
 
   final GuidePackage? guide;
   final ProfileStore? profileStore;
   final ModelStore? modelStore;
+  final DecisionRecordStore? recordStore;
+  final ReviewReminder? reminder;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -36,16 +44,28 @@ class DecisionGuideApp extends StatelessWidget {
           ),
         ),
         home: HomeScreen(
-            guide: guide, profileStore: profileStore, modelStore: modelStore),
+            guide: guide,
+            profileStore: profileStore,
+            modelStore: modelStore,
+            recordStore: recordStore,
+            reminder: reminder),
       );
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.guide, this.profileStore, this.modelStore});
+  const HomeScreen(
+      {super.key,
+      this.guide,
+      this.profileStore,
+      this.modelStore,
+      this.recordStore,
+      this.reminder});
 
   final GuidePackage? guide;
   final ProfileStore? profileStore;
   final ModelStore? modelStore;
+  final DecisionRecordStore? recordStore;
+  final ReviewReminder? reminder;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -53,6 +73,29 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int selectedIndex = 3;
+  late final DecisionRecordStore records =
+      widget.recordStore ?? SecureDecisionRecordStore();
+  late final ReviewReminder reminder =
+      widget.reminder ?? AndroidReviewReminder();
+
+  @override
+  void initState() {
+    super.initState();
+    AndroidReviewReminder.channel.setMethodCallHandler((call) async {
+      if (call.method == 'openRecords' && mounted) {
+        setState(() => selectedIndex = 1);
+      }
+    });
+    reminder.openedFromReminder().then((opened) {
+      if (opened && mounted) setState(() => selectedIndex = 1);
+    }).catchError((_) {});
+  }
+
+  @override
+  void dispose() {
+    AndroidReviewReminder.channel.setMethodCallHandler(null);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,16 +109,23 @@ class _HomeScreenState extends State<HomeScreen> {
             guide: widget.guide,
             modelStore: widget.modelStore,
             profileStore: widget.profileStore,
+            recordStore: records,
+            reminder: reminder,
             onBrowseGuide: () => setState(() => selectedIndex = 3),
             onOpenEntry: (entry, guide) => Navigator.of(context).push(
               MaterialPageRoute<void>(
                   builder: (_) => GuideEntryScreen(entry: entry, guide: guide)),
             ),
           ),
-          const _PendingPage(icon: Icons.bookmark_outline, title: '记录'),
+          selectedIndex == 1
+              ? RecordsScreen(store: records, reminder: reminder)
+              : const SizedBox.shrink(),
           selectedIndex == 2
               ? ProfileScreen(
-                  store: widget.profileStore, modelStore: widget.modelStore)
+                  store: widget.profileStore,
+                  modelStore: widget.modelStore,
+                  recordStore: records,
+                  reminder: reminder)
               : const SizedBox.shrink(),
           selectedIndex == 3
               ? GuideScreen(initialGuide: widget.guide)
@@ -97,25 +147,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-}
-
-class _PendingPage extends StatelessWidget {
-  const _PendingPage({required this.icon, required this.title});
-
-  final IconData icon;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 36, color: Theme.of(context).colorScheme.outline),
-            const SizedBox(height: 12),
-            Text('$title即将开放', style: Theme.of(context).textTheme.titleMedium),
-          ],
-        ),
-      );
 }
 
 class GuideScreen extends StatefulWidget {

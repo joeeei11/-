@@ -286,7 +286,8 @@ void main() {
     expect(
         find.ancestor(
             of: find.text('拨打 119 消防'),
-            matching: find.byWidgetPredicate((widget) => widget is FilledButton)),
+            matching:
+                find.byWidgetPredicate((widget) => widget is FilledButton)),
         findsOneWidget);
     expect(store.calls, 0);
     expect(profiles.loads, 0);
@@ -592,6 +593,7 @@ void main() {
     Future<void> mount() => tester.pumpWidget(MaterialApp(
             home: Scaffold(
                 body: ConsultationScreen(
+          key: UniqueKey(),
           guide: guide,
           service: service,
           profileStore: profiles,
