@@ -432,6 +432,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   List<ProfileClarification> clarifications = [];
   String? pendingQuestion;
   bool busy = false;
+  bool restoredDraft = false;
   String? message;
   DecisionAnswer? answer;
   String? answeredQuestion;
@@ -446,7 +447,10 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     super.initState();
     drafts.load().then((draft) {
       if (mounted && draft != null && controller.text.isEmpty) {
-        controller.text = draft;
+        setState(() {
+          controller.text = draft;
+          restoredDraft = true;
+        });
       }
     }).catchError((_) {
       if (mounted) setState(() => message = '本地草稿读取失败。');
@@ -523,11 +527,14 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     try {
       await drafts.save(question);
       if (mounted) {
-        setState(() => message = error is ModelCallException
-            ? error.message
-            : error is FormatException
-                ? error.message
-                : '请求失败，请检查连接后重试。');
+        setState(() {
+          final reason = error is ModelCallException
+              ? error.message
+              : error is FormatException
+                  ? error.message
+                  : '请求失败，请检查连接后重试。';
+          message = '$reason 问题已保存在本机，可直接重试。';
+        });
       }
     } catch (_) {
       if (mounted) setState(() => message = '请求失败，草稿保存也失败；请暂时保留此页面。');
@@ -679,13 +686,47 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     }
   }
 
+  void useExample(String question) {
+    controller.value = TextEditingValue(
+      text: question,
+      selection: TextSelection.collapsed(offset: question.length),
+    );
+    setState(() {
+      restoredDraft = false;
+      message = null;
+      pendingQuestion = null;
+      clarifications = [];
+      selectedCategories.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
         children: [
+          if (pendingQuestion == null &&
+              answer == null &&
+              emergencyRoute == null) ...[
+            Center(
+              child: Image.asset('assets/mascot/welcome.png',
+                  width: 112,
+                  height: 112,
+                  fit: BoxFit.contain,
+                  semanticLabel: '欢迎小章鱼'),
+            ),
+            const SizedBox(height: 8),
+            Text('今天，想清楚什么？', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 24),
+          ],
           TextField(
             controller: controller,
             onChanged: (value) {
+              if (restoredDraft || message != null) {
+                setState(() {
+                  restoredDraft = false;
+                  message = null;
+                });
+              }
               if (pendingQuestion != null && value.trim() != pendingQuestion) {
                 setState(() {
                   pendingQuestion = null;
@@ -694,22 +735,71 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                 });
               }
             },
-            minLines: 3,
+            minLines: 4,
             maxLines: 7,
             maxLength: 1000,
             decoration: const InputDecoration(
               labelText: '你的问题',
-              hintText: '例如：我该如何调整下午的咖啡习惯？',
+              hintText: '写下你正在考虑的事，或点选下面的例子',
               border: OutlineInputBorder(),
               alignLabelWithHint: true,
             ),
           ),
-          const SizedBox(height: 8),
+          if (restoredDraft) ...[
+            const SizedBox(height: 8),
+            const Text('已恢复上次未完成的问题，可继续编辑。'),
+          ],
+          const SizedBox(height: 12),
+          Text('问题会发送给你设置的模型；仅发送本次选择的个人资料。',
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: busy ? null : submit,
             icon: const Icon(Icons.send_outlined),
-            label: Text(busy ? '正在生成答复' : '提交问题'),
+            label: Text(busy ? '正在分析' : '开始分析'),
+            style:
+                FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
           ),
+          if (busy)
+            const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator())),
+          if (message != null) ...[
+            const SizedBox(height: 16),
+            Semantics(
+              liveRegion: true,
+              child: Text(message!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+                onPressed: widget.onBrowseGuide,
+                icon: const Icon(Icons.menu_book_outlined),
+                label: const Text('浏览离线指南')),
+          ],
+          if (pendingQuestion == null &&
+              answer == null &&
+              emergencyRoute == null) ...[
+            const SizedBox(height: 24),
+            Text('试试这样提问', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final example in const [
+              '要不要换一份工作？',
+              '这笔钱该不该花？',
+              '接下来三个月怎么安排？',
+            ])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: OutlinedButton(
+                  onPressed: busy ? null : () => useExample(example),
+                  style: OutlinedButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  child: Text(example),
+                ),
+              ),
+          ],
           if (clarifications.isNotEmpty) ...[
             const SizedBox(height: 16),
             Text('补充信息', style: Theme.of(context).textTheme.titleMedium),
@@ -744,20 +834,6 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               onPressed: busy ? null : continueWithProfile,
               child: const Text('继续获得答复'),
             ),
-          ],
-          if (busy)
-            const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator())),
-          if (message != null) ...[
-            const SizedBox(height: 16),
-            Text(message!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            const SizedBox(height: 8),
-            TextButton.icon(
-                onPressed: widget.onBrowseGuide,
-                icon: const Icon(Icons.menu_book_outlined),
-                label: const Text('浏览离线指南')),
           ],
           if (emergencyRoute != null) _EmergencyView(isFire: fireEmergency),
           if (answer != null && answerGuide != null)

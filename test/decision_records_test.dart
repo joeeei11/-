@@ -172,7 +172,7 @@ void main() {
       onOpenEntry: (_, __) {},
     ))));
     await tester.enterText(find.byType(TextField).first, '我该如何运动？');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();

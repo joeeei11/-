@@ -36,7 +36,7 @@ void main() {
   testWidgets('六类资料可留空、修改并删除', (tester) async {
     final store = MemoryProfileStore();
     await tester.pumpWidget(DecisionGuideApp(profileStore: store));
-    await tester.tap(find.text('资料').last);
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     for (final category in ProfileCategory.values) {
@@ -70,7 +70,7 @@ void main() {
   testWidgets('答复偏好可保存并删除', (tester) async {
     final store = MemoryProfileStore();
     await tester.pumpWidget(DecisionGuideApp(profileStore: store));
-    await tester.tap(find.text('资料').last);
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(find.text('答复偏好'), 200,

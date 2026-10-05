@@ -269,7 +269,7 @@ void main() {
       onOpenEntry: (_, __) {},
     ))));
     await tester.enterText(find.byType(TextField), '我胸痛、呼吸困难，现在怎么办');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pump();
     expect(find.text('分流结果：紧急风险'), findsOneWidget);
     expect(find.text('拨打 120 急救'), findsOneWidget);
@@ -279,7 +279,7 @@ void main() {
     expect(profiles.loads, 0);
 
     await tester.enterText(find.byType(TextField), '旁边起大火了怎么办');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pump();
     expect(find.text('分流结果：紧急风险'), findsOneWidget);
     expect(find.textContaining('不要乘坐电梯'), findsOneWidget);
@@ -305,7 +305,7 @@ void main() {
       onOpenEntry: (_, __) {},
     ))));
     await tester.enterText(find.byType(TextField), '我的症状需要用药吗');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     expect(service.receivedRoute, RiskRoute.medical);
     expect(service.clarifications, 0);
@@ -365,7 +365,7 @@ void main() {
       onOpenEntry: (_, __) {},
     ))));
     await tester.enterText(find.byType(TextField), '我现在该不该睡觉');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     expect(find.text('先确认是否需要休息'), findsOneWidget);
     expect(find.text('澄清问题无法核查，请重试。'), findsNothing);
@@ -603,7 +603,7 @@ void main() {
         ))));
     await mount();
     await tester.enterText(find.byType(TextField).first, '我该如何运动？');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     expect(find.text('是否有健康限制？'), findsOneWidget);
     expect(find.text('避免剧烈运动'), findsNothing);
@@ -618,7 +618,7 @@ void main() {
 
     await mount();
     await tester.enterText(find.byType(TextField).first, '我该如何运动？');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();
@@ -648,9 +648,11 @@ void main() {
     ))));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '下午喝咖啡好吗');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     expect(drafts.value, '下午喝咖啡好吗');
+    expect(find.textContaining('问题已保存在本机，可直接重试'), findsOneWidget);
+    expect(find.text('下午喝咖啡好吗'), findsOneWidget);
     expect(find.text('浏览离线指南'), findsOneWidget);
     expect(find.text('结论'), findsNothing);
     await tester.pumpWidget(const SizedBox());
@@ -665,6 +667,43 @@ void main() {
     ))));
     await tester.pumpAndSettle();
     expect(find.text('下午喝咖啡好吗'), findsOneWidget);
+    expect(find.text('已恢复上次未完成的问题，可继续编辑。'), findsOneWidget);
+  });
+
+  testWidgets('欢迎页示例可填写、编辑并提交', (tester) async {
+    final drafts = MemoryDrafts();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConsultationScreen(
+      guide: guide,
+      service: FailingService(),
+      draftStore: drafts,
+      onBrowseGuide: () {},
+      onOpenEntry: (_, __) {},
+    ))));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('欢迎小章鱼'), findsOneWidget);
+    expect(find.text('今天，想清楚什么？'), findsOneWidget);
+    expect(find.text('问题会发送给你设置的模型；仅发送本次选择的个人资料。'), findsOneWidget);
+    for (final example in const [
+      '要不要换一份工作？',
+      '这笔钱该不该花？',
+      '接下来三个月怎么安排？',
+    ]) {
+      await tester.scrollUntilVisible(find.text(example), 80,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text(example), findsOneWidget);
+    }
+    await tester.scrollUntilVisible(find.text('要不要换一份工作？'), -80,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('要不要换一份工作？'));
+    await tester.pumpAndSettle();
+    expect(find.text('要不要换一份工作？'), findsNWidgets(2));
+    await tester.enterText(find.byType(TextField), '要不要换一份远程工作？');
+    await tester.ensureVisible(find.text('开始分析'));
+    await tester.tap(find.text('开始分析'));
+    await tester.pumpAndSettle();
+    expect(drafts.value, '要不要换一份远程工作？');
   });
 
   testWidgets('答复默认只展开前两项，引用可展开查看', (tester) async {
@@ -679,7 +718,7 @@ void main() {
       onOpenEntry: (_, __) {},
     ))));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     expect(find.text('下午少喝咖啡'), findsOneWidget);
     expect(find.text('今天下午改喝水'), findsOneWidget);
@@ -710,7 +749,7 @@ void main() {
     ))));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '今天该不该吃饭');
-    await tester.tap(find.text('提交问题'));
+    await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     expect(find.text('没有适用的指南依据'), findsOneWidget);
     expect(find.text('本次答复为模型推断，请自行核查。'), findsOneWidget);

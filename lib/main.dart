@@ -33,14 +33,29 @@ class DecisionGuideApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF176B55),
-            surface: const Color(0xFFF7F8F6),
+          brightness: Brightness.light,
+          colorScheme: const ColorScheme.light(
+            primary: Color(0xFF2563EB),
+            onPrimary: Colors.white,
+            surface: Colors.white,
+            onSurface: Color(0xFF111827),
+            error: Color(0xFFDC2626),
           ),
-          scaffoldBackgroundColor: const Color(0xFFF7F8F6),
+          scaffoldBackgroundColor: const Color(0xFFF8FAFC),
           appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFFF7F8F6),
+            backgroundColor: Color(0xFFF8FAFC),
+            foregroundColor: Color(0xFF111827),
             centerTitle: false,
+          ),
+          cardTheme: const CardTheme(
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(8)),
+            ),
+          ),
+          textTheme: const TextTheme(
+            bodyMedium: TextStyle(color: Color(0xFF111827)),
+            bodySmall: TextStyle(color: Color(0xFF64748B)),
           ),
         ),
         home: HomeScreen(
@@ -72,7 +87,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int selectedIndex = 3;
+  int selectedIndex = 0;
   late final DecisionRecordStore records =
       widget.recordStore ?? SecureDecisionRecordStore();
   late final ReviewReminder reminder =
@@ -132,18 +147,58 @@ class _HomeScreenState extends State<HomeScreen> {
               : const SizedBox.shrink(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (index) => setState(() => selectedIndex = index),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.chat_bubble_outline), label: '咨询'),
-          NavigationDestination(
-              icon: Icon(Icons.bookmark_outline), label: '记录'),
-          NavigationDestination(icon: Icon(Icons.person_outline), label: '资料'),
-          NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined), label: '指南'),
-        ],
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+          child: Material(
+            color: Colors.white,
+            elevation: 8,
+            shadowColor: const Color(0x1A111827),
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              height: 64,
+              child: Row(
+                children: [
+                  _navigationItem(0, '咨询', Icons.chat_bubble_outline),
+                  _navigationItem(1, '记录', Icons.bookmark_outline),
+                  _navigationItem(2, '资料', Icons.person_outline),
+                  _navigationItem(3, '指南', Icons.menu_book_outlined),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _navigationItem(int index, String label, IconData icon) {
+    final selected = selectedIndex == index;
+    return Expanded(
+      child: Semantics(
+        label: label,
+        button: true,
+        selected: selected,
+        child: InkWell(
+          onTap: () => setState(() => selectedIndex = index),
+          child: Center(
+            child: ExcludeSemantics(
+              child: selected
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(icon, color: const Color(0xFF2563EB)),
+                        Text(label,
+                            style: const TextStyle(
+                                color: Color(0xFF2563EB), fontSize: 12)),
+                      ],
+                    )
+                  : Icon(icon, color: const Color(0xFF64748B)),
+            ),
+          ),
+        ),
       ),
     );
   }
