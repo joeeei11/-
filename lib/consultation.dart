@@ -417,6 +417,7 @@ class ConsultationScreen extends StatefulWidget {
 
 class _ConsultationScreenState extends State<ConsultationScreen> {
   final controller = TextEditingController();
+  final clarificationScrollController = ScrollController();
   late final QuestionDraftStore drafts =
       widget.draftStore ?? SecureQuestionDraftStore();
   late final ConsultationService service = widget.service ??
@@ -428,8 +429,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   late final ReviewReminder reminder =
       widget.reminder ?? AndroidReviewReminder();
   final Map<ProfileCategory, TextEditingController> profileControllers = {};
-  final Set<ProfileCategory> selectedCategories = {};
+  final Map<ProfileCategory, bool> clarificationChoices = {};
   List<ProfileClarification> clarifications = [];
+  int clarificationIndex = 0;
   String? pendingQuestion;
   bool busy = false;
   bool restoredDraft = false;
@@ -460,6 +462,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   @override
   void dispose() {
     controller.dispose();
+    clarificationScrollController.dispose();
     for (final field in profileControllers.values) {
       field.dispose();
     }
@@ -597,15 +600,70 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     final selected = <ProfileCategory, String>{};
     for (final clarification in clarifications) {
       final category = clarification.category;
-      if (!selectedCategories.contains(category)) continue;
+      if (clarificationChoices[category] != true) continue;
       final value = profileControllers[category]!.text.trim();
       if (value.isEmpty) {
-        setState(() => message = '请填写已勾选的资料，或取消勾选。');
+        setState(() => message = '请填写已选择的资料，或改选暂不提供。');
         return;
       }
       selected[category] = value;
     }
     await finishAnswer(question, guide, selected);
+  }
+
+  Future<void> advanceClarification() async {
+    final item = clarifications[clarificationIndex];
+    final choice = clarificationChoices[item.category];
+    if (choice == null) {
+      setState(() => message = '请选择是否提供这项资料。');
+      return;
+    }
+    if (choice && profileControllers[item.category]!.text.trim().isEmpty) {
+      setState(() => message = '请填写已选择的资料，或改选暂不提供。');
+      return;
+    }
+    if (clarificationIndex < clarifications.length - 1) {
+      setState(() {
+        clarificationIndex++;
+        message = null;
+      });
+      if (clarificationScrollController.hasClients) {
+        clarificationScrollController.jumpTo(0);
+      }
+    } else {
+      await continueWithProfile();
+    }
+  }
+
+  void editQuestion() {
+    setState(() {
+      pendingQuestion = null;
+      clarifications = [];
+      clarificationChoices.clear();
+      clarificationIndex = 0;
+      message = null;
+    });
+  }
+
+  void reviseAnsweredQuestion() {
+    setState(() {
+      controller.text = answeredQuestion ?? controller.text;
+      answer = null;
+      answeredQuestion = null;
+      answerGuide = null;
+      savedAnswerId = null;
+      message = null;
+    });
+  }
+
+  void previousClarification() {
+    setState(() {
+      clarificationIndex--;
+      message = null;
+    });
+    if (clarificationScrollController.hasClients) {
+      clarificationScrollController.jumpTo(0);
+    }
   }
 
   Future<void> submit() async {
@@ -668,7 +726,8 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
           field.dispose();
         }
         profileControllers.clear();
-        selectedCategories.clear();
+        clarificationChoices.clear();
+        clarificationIndex = 0;
         for (final item in requested) {
           profileControllers[item.category] = TextEditingController(
               text: snapshot.categories[item.category] ?? '');
@@ -696,200 +755,319 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       message = null;
       pendingQuestion = null;
       clarifications = [];
-      selectedCategories.clear();
+      clarificationChoices.clear();
+      clarificationIndex = 0;
     });
   }
 
   @override
-  Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-        children: [
-          if (pendingQuestion == null &&
-              answer == null &&
-              emergencyRoute == null) ...[
-            Center(
-              child: Image.asset('assets/mascot/welcome.png',
-                  width: 112,
-                  height: 112,
-                  fit: BoxFit.contain,
-                  semanticLabel: '欢迎小章鱼'),
-            ),
-            const SizedBox(height: 8),
-            Text('今天，想清楚什么？', style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 24),
-          ],
-          TextField(
-            controller: controller,
-            onChanged: (value) {
-              if (restoredDraft || message != null) {
-                setState(() {
-                  restoredDraft = false;
-                  message = null;
-                });
-              }
-              if (pendingQuestion != null && value.trim() != pendingQuestion) {
-                setState(() {
-                  pendingQuestion = null;
-                  clarifications = [];
-                  selectedCategories.clear();
-                });
-              }
-            },
-            minLines: 4,
-            maxLines: 7,
-            maxLength: 1000,
-            decoration: const InputDecoration(
-              labelText: '你的问题',
-              hintText: '写下你正在考虑的事，或点选下面的例子',
-              border: OutlineInputBorder(),
-              alignLabelWithHint: true,
-            ),
+  Widget build(BuildContext context) => SafeArea(child: _buildContent(context));
+
+  Widget _buildContent(BuildContext context) => pendingQuestion != null &&
+          clarifications.isNotEmpty
+      ? _buildClarification(context)
+      : answer != null && answerGuide != null
+          ? ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              children: [
+                _AnswerView(
+                  answer: answer!,
+                  guide: answerGuide!,
+                  onOpenEntry: widget.onOpenEntry,
+                  onSave: saveDecision,
+                  onEdit: reviseAnsweredQuestion,
+                  busy: busy,
+                  saved: savedAnswerId != null,
+                  message: message,
+                ),
+              ],
+            )
+          : emergencyRoute != null
+              ? ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                  children: [
+                    _EmergencyView(isFire: fireEmergency),
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      onPressed: () => setState(() => emergencyRoute = null),
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('修改问题'),
+                    ),
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                  children: [
+                    if (pendingQuestion == null &&
+                        answer == null &&
+                        emergencyRoute == null) ...[
+                      Center(
+                        child: Image.asset('assets/mascot/welcome.png',
+                            width: 112,
+                            height: 112,
+                            fit: BoxFit.contain,
+                            semanticLabel: '欢迎小章鱼'),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('今天，想清楚什么？',
+                          style: Theme.of(context).textTheme.headlineSmall),
+                      const SizedBox(height: 24),
+                    ],
+                    TextField(
+                      controller: controller,
+                      onChanged: (value) {
+                        if (restoredDraft || message != null) {
+                          setState(() {
+                            restoredDraft = false;
+                            message = null;
+                          });
+                        }
+                      },
+                      minLines: 4,
+                      maxLines: 7,
+                      maxLength: 1000,
+                      decoration: const InputDecoration(
+                        labelText: '你的问题',
+                        hintText: '写下你正在考虑的事，或点选下面的例子',
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                    if (restoredDraft) ...[
+                      const SizedBox(height: 8),
+                      const Text('已恢复上次未完成的问题，可继续编辑。'),
+                    ],
+                    const SizedBox(height: 12),
+                    Text('问题会发送给你设置的模型；仅发送本次选择的个人资料。',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: busy ? null : submit,
+                      icon: const Icon(Icons.send_outlined),
+                      label: Text(busy ? '正在分析' : '开始分析'),
+                      style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(52)),
+                    ),
+                    if (message != null) ...[
+                      const SizedBox(height: 16),
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(message!,
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.error)),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                          onPressed: widget.onBrowseGuide,
+                          icon: const Icon(Icons.menu_book_outlined),
+                          label: const Text('浏览离线指南')),
+                    ],
+                    if (pendingQuestion == null &&
+                        answer == null &&
+                        emergencyRoute == null) ...[
+                      const SizedBox(height: 24),
+                      Text('试试这样提问',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      for (final example in const [
+                        '要不要换一份工作？',
+                        '这笔钱该不该花？',
+                        '接下来三个月怎么安排？',
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: OutlinedButton(
+                            onPressed: busy ? null : () => useExample(example),
+                            style: OutlinedButton.styleFrom(
+                              alignment: Alignment.centerLeft,
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                            child: Text(example),
+                          ),
+                        ),
+                    ],
+                  ],
+                );
+
+  Widget _buildClarification(BuildContext context) {
+    final item = clarifications[clarificationIndex];
+    final choice = clarificationChoices[item.category];
+    return ListView(
+      controller: clarificationScrollController,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      children: [
+        Center(
+          child: Image.asset('assets/mascot/thinking.png',
+              width: 112,
+              height: 112,
+              fit: BoxFit.contain,
+              semanticLabel: '思考中的小章鱼'),
+        ),
+        const SizedBox(height: 8),
+        Text('补充一点信息', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 16),
+        Text('原问题', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 4),
+        Text(pendingQuestion!),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: busy ? null : editQuestion,
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('修改问题'),
           ),
-          if (restoredDraft) ...[
-            const SizedBox(height: 8),
-            const Text('已恢复上次未完成的问题，可继续编辑。'),
-          ],
-          const SizedBox(height: 12),
-          Text('问题会发送给你设置的模型；仅发送本次选择的个人资料。',
-              style: Theme.of(context).textTheme.bodySmall),
+        ),
+        const SizedBox(height: 16),
+        Text('第 ${clarificationIndex + 1} 题，共 ${clarifications.length} 题',
+            style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 12),
+        Text(item.question, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 16),
+        for (final option in const [true, false])
+          RadioListTile<bool>(
+            contentPadding: EdgeInsets.zero,
+            title: Text(option ? '提供资料' : '暂不提供'),
+            value: option,
+            groupValue: choice,
+            onChanged: busy
+                ? null
+                : (value) => setState(() {
+                      clarificationChoices[item.category] = value!;
+                      message = null;
+                    }),
+          ),
+        if (choice == true) ...[
           const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: busy ? null : submit,
-            icon: const Icon(Icons.send_outlined),
-            label: Text(busy ? '正在分析' : '开始分析'),
-            style:
-                FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+          TextField(
+            controller: profileControllers[item.category],
+            maxLines: 3,
+            maxLength: 500,
+            decoration: InputDecoration(
+              labelText: item.category.label,
+              border: const OutlineInputBorder(),
+            ),
           ),
-          if (busy)
-            const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator())),
-          if (message != null) ...[
-            const SizedBox(height: 16),
-            Semantics(
-              liveRegion: true,
-              child: Text(message!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
-            const SizedBox(height: 8),
-            TextButton.icon(
-                onPressed: widget.onBrowseGuide,
-                icon: const Icon(Icons.menu_book_outlined),
-                label: const Text('浏览离线指南')),
-          ],
-          if (pendingQuestion == null &&
-              answer == null &&
-              emergencyRoute == null) ...[
-            const SizedBox(height: 24),
-            Text('试试这样提问', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            for (final example in const [
-              '要不要换一份工作？',
-              '这笔钱该不该花？',
-              '接下来三个月怎么安排？',
-            ])
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: OutlinedButton(
-                  onPressed: busy ? null : () => useExample(example),
-                  style: OutlinedButton.styleFrom(
-                    alignment: Alignment.centerLeft,
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                  child: Text(example),
-                ),
-              ),
-          ],
-          if (clarifications.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text('补充信息', style: Theme.of(context).textTheme.titleMedium),
-            for (final item in clarifications) ...[
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(item.question),
-                subtitle: Text(item.category.label),
-                value: selectedCategories.contains(item.category),
-                onChanged: busy
-                    ? null
-                    : (value) => setState(() {
-                          if (value == true) {
-                            selectedCategories.add(item.category);
-                          } else {
-                            selectedCategories.remove(item.category);
-                          }
-                        }),
-              ),
-              if (selectedCategories.contains(item.category))
-                TextField(
-                  controller: profileControllers[item.category],
-                  maxLines: 3,
-                  maxLength: 500,
-                  decoration: InputDecoration(
-                    labelText: item.category.label,
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-            ],
-            FilledButton(
-              onPressed: busy ? null : continueWithProfile,
-              child: const Text('继续获得答复'),
-            ),
-          ],
-          if (emergencyRoute != null) _EmergencyView(isFire: fireEmergency),
-          if (answer != null && answerGuide != null)
-            _AnswerView(
-                answer: answer!,
-                guide: answerGuide!,
-                onOpenEntry: widget.onOpenEntry),
-          if (answer != null && answerGuide != null) ...[
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: busy || savedAnswerId != null ? null : saveDecision,
-              icon: const Icon(Icons.bookmark_add_outlined),
-              label: Text(savedAnswerId == null ? '保存为决策记录' : '已保存到记录'),
-            ),
-          ],
         ],
-      );
+        const SizedBox(height: 12),
+        Text('仅发送本次选择提供的资料。', style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 20),
+        FilledButton(
+          onPressed: busy ? null : advanceClarification,
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+          child: Text(busy
+              ? '正在生成答复'
+              : clarificationIndex == clarifications.length - 1
+                  ? '继续获得答复'
+                  : '下一题'),
+        ),
+        if (clarificationIndex > 0) ...[
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: busy ? null : previousClarification,
+            child: const Text('上一题'),
+          ),
+        ],
+        if (message != null) ...[
+          const SizedBox(height: 16),
+          Semantics(
+            liveRegion: true,
+            child: Text(message!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ),
+          TextButton.icon(
+            onPressed: widget.onBrowseGuide,
+            icon: const Icon(Icons.menu_book_outlined),
+            label: const Text('浏览离线指南'),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 class _AnswerView extends StatelessWidget {
   const _AnswerView(
-      {required this.answer, required this.guide, required this.onOpenEntry});
+      {required this.answer,
+      required this.guide,
+      required this.onOpenEntry,
+      required this.onSave,
+      required this.onEdit,
+      required this.busy,
+      required this.saved,
+      required this.message});
   final DecisionAnswer answer;
   final GuidePackage guide;
   final void Function(GuideEntry entry, GuidePackage guide) onOpenEntry;
+  final VoidCallback onSave;
+  final VoidCallback onEdit;
+  final bool busy;
+  final bool saved;
+  final String? message;
 
   @override
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Center(
+            child: Image.asset('assets/mascot/complete.png',
+                width: 72,
+                height: 72,
+                fit: BoxFit.contain,
+                semanticLabel: '完成的小章鱼'),
+          ),
+          const SizedBox(height: 8),
+          Text('给你的建议', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 20),
-          Text('分流结果：${answer.route.label}',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text('结论', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(answer.conclusion),
+          const SizedBox(height: 20),
+          Text('今天的下一步', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(answer.nextStep),
           if (answer.route != RiskRoute.ordinary) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
+            Text('分流结果：${answer.route.label}',
+                style: Theme.of(context).textTheme.titleMedium),
             const Text('以下仅供了解资料与风险，不代替专业人员对个案的判断。'),
           ],
           if (answer.citations.isEmpty) ...[
+            const SizedBox(height: 12),
             const ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.info_outline),
               title: Text('没有适用的指南依据'),
               subtitle: Text('本次答复为模型推断，请自行核查。'),
             ),
-            const SizedBox(height: 8),
           ],
-          Text('结论', style: Theme.of(context).textTheme.titleMedium),
-          Text(answer.conclusion),
-          const SizedBox(height: 16),
-          Text('今天的下一步', style: Theme.of(context).textTheme.titleMedium),
-          Text(answer.nextStep),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: busy || saved ? null : onSave,
+            style:
+                FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+            icon: Icon(saved
+                ? Icons.bookmark_added_outlined
+                : Icons.bookmark_add_outlined),
+            label: Text(saved ? '已保存到记录' : '保存这个决定'),
+          ),
           const SizedBox(height: 8),
+          Center(
+            child: TextButton.icon(
+              onPressed: busy ? null : onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('修改问题'),
+            ),
+          ),
+          if (message != null) ...[
+            const SizedBox(height: 8),
+            Semantics(liveRegion: true, child: Text(message!)),
+          ],
+          const SizedBox(height: 16),
           ExpansionTile(title: const Text('理由或证据'), children: [
             ListTile(title: Text(answer.reason)),
           ]),
-          ExpansionTile(title: const Text('风险'), children: [
+          ExpansionTile(title: const Text('风险与边界'), children: [
             ListTile(title: Text(answer.risk)),
           ]),
           ExpansionTile(title: const Text('复查日期'), children: [
@@ -905,14 +1083,14 @@ class _AnswerView extends StatelessWidget {
                 onTap: () => onOpenEntry(entry, guide),
               ),
             ListTile(title: const Text('未知信息'), subtitle: Text(answer.unknown)),
+          ]),
+          ExpansionTile(title: const Text('本次使用的资料'), children: [
             ListTile(
-              title: const Text('已用个人资料'),
-              subtitle: Text(answer.usedProfileFields.isEmpty
-                  ? '无'
-                  : answer.usedProfileFields
-                      .map((field) => field.label)
-                      .join('、')),
-            ),
+                title: Text(answer.usedProfileFields.isEmpty
+                    ? '无'
+                    : answer.usedProfileFields
+                        .map((field) => field.label)
+                        .join('、'))),
           ]),
         ],
       );
@@ -927,7 +1105,6 @@ class _EmergencyView extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 20),
           Text('分流结果：紧急风险', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(isFire
@@ -938,22 +1115,30 @@ class _EmergencyView extends StatelessWidget {
           if (isFire)
             FilledButton.icon(
               onPressed: () => launchUrl(Uri(scheme: 'tel', path: '119')),
+              style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52)),
               icon: const Icon(Icons.call_outlined),
               label: const Text('拨打 119 消防'),
             ),
           FilledButton.icon(
             onPressed: () => launchUrl(Uri(scheme: 'tel', path: '120')),
+            style:
+                FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
             icon: const Icon(Icons.call_outlined),
             label: const Text('拨打 120 急救'),
           ),
           OutlinedButton.icon(
             onPressed: () => launchUrl(Uri(scheme: 'tel', path: '110')),
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(52)),
             icon: const Icon(Icons.call_outlined),
             label: const Text('拨打 110 报警'),
           ),
           if (!isFire)
             OutlinedButton.icon(
               onPressed: () => launchUrl(Uri(scheme: 'tel', path: '119')),
+              style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52)),
               icon: const Icon(Icons.call_outlined),
               label: const Text('拨打 119 消防'),
             ),

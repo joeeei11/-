@@ -174,13 +174,17 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '我该如何运动？');
     await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(CheckboxListTile));
+    await tester.tap(find.text('提供资料'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('继续获得答复'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
     await tester.pumpAndSettle();
     await tester.tap(find.text('继续获得答复'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('保存为决策记录'), 300,
+    await tester.scrollUntilVisible(find.text('保存这个决定'), 300,
         scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.text('保存为决策记录'));
+    await tester.tap(find.text('保存这个决定'));
     await tester.pumpAndSettle();
     expect(find.text('2030-10-12'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '保存').last);

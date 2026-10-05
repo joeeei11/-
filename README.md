@@ -1,31 +1,58 @@
 # 个人决策助手
 
-一款面向个人使用的 Android 决策助手。它在设备本地提供《HowToLiveBetter》指南、个人资料管理、自有模型连接配置和可复查的决策记录。
+一款面向个人使用的 Android 决策工具：用本地指南、用户主动提供的资料和自有模型连接，把问题整理成可复查的下一步。
 
-## 当前功能
+<p align="center">
+  <a href="#界面预览">界面预览</a> ·
+  <a href="#能做什么">能做什么</a> ·
+  <a href="#隐私与边界">隐私与边界</a> ·
+  <a href="#本地运行">本地运行</a> ·
+  <a href="#内置指南与署名">内置指南与署名</a>
+</p>
 
-- 按关键词搜索或按章节浏览 657 条内置指南。
-- 阅读每条建议的成本、收益、证据等级、来源及指南版本。
-- 在“指南包信息”查看完整版本、更新日期、项目署名、链接和 CC BY 4.0 许可。
-- 用户主动检查官方 GitHub Release；发现兼容的 `guide.json` 后，确认版本才会下载并安装。更新失败不影响离线浏览。
-- 指南数据随应用打包；搜索和阅读不需要网络。检查更新或打开外部链接时使用网络。
-- 按需保存、修改或删除六类个人资料及答复偏好。资料保存在设备的加密存储中。
-- 配置、测试或删除 OpenAI 兼容模型连接。API Key 只保存在系统安全存储中，页面不会回显；可设置每日请求次数和单次答复长度上限。
-- 在“咨询”输入问题或选用三个可编辑的示例，查看五段式答复；有相关指南时展示引用，没有时明确标为模型推断。服务失败后可恢复问题草稿并重试。
-- 紧急问题优先显示求助行动和 120、110、119 拨号入口；医疗、法律和投资问题显示风险及专业求助方向。
-- 仅在用户主动选择后，才使用相关个人资料生成答复；答复会显示实际使用的资料字段和未知信息。
-- 用户可主动保存决策答复、最终选择、资料快照和复查日期；到期后可收到本地通知，并在“记录”中标为继续、修改或结束。
-- 可用密码导出和恢复加密备份。备份仅包含个人资料、答复偏好和决策记录；不包含 API Key。导入会先要求确认覆盖，恢复后需要重新填写模型连接。
+## 界面预览
 
-## 隐私
+| 提问 | 补充信息 | 答复与保存 |
+| --- | --- | --- |
+| <img src="assets/screenshots/consultation-input.jpg" alt="咨询输入页：输入问题、查看资料使用提示并开始分析" width="240"> | <img src="assets/screenshots/consultation-clarification.jpg" alt="澄清页：逐题选择是否提供个人资料" width="240"> | <img src="assets/screenshots/consultation-answer.jpg" alt="答复页：展示结论、下一步和保存操作" width="240"> |
 
-- 不提供账号、云同步、模型代理、远程分析或广告追踪。
-- 咨询时仅向已配置的模型发送本次问题、检索到的指南条目和用户主动选择的最小必要个人资料；敏感输入在本地拦截。
-- 模型连接测试只发送固定的 `ping` 请求，不发送个人资料。
+| 决策记录 | 个人资料与设置 | 离线指南 |
+| --- | --- | --- |
+| <img src="assets/screenshots/decision-records.jpg" alt="记录页：查看待复查的决策" width="240"> | <img src="assets/screenshots/profile-and-settings.jpg" alt="资料页：管理个人资料、模型连接和加密备份" width="240"> | <img src="assets/screenshots/offline-guide.jpg" alt="指南页：搜索或按章节阅读本地指南" width="240"> |
 
-## 构建与验证
+## 能做什么
 
-需要 Flutter SDK 和 Android SDK。Windows 上请在全英文路径下构建；当前工具链在含中文路径下构建 Android 调试包曾失败。
+### 从问题到行动
+
+- 输入自己的问题，或从三个可编辑示例开始。
+- 先查看结论和今天的下一步；理由、风险、引用、未知信息和已用资料可按需展开。
+- 最多回答三个澄清问题，并自行决定是否提供每一项资料。
+- 把答复保存为记录，设置复查日期，并在之后标记继续、修改或结束。
+
+### 风险与指南
+
+- 内置 657 条《HowToLiveBetter》指南，可离线搜索、按章节浏览和查看来源。
+- 紧急问题先显示求助行动与 120、110、119 拨号入口。
+- 医疗、法律和投资问题会显示风险边界及专业求助方向。
+- 可主动检查官方指南更新；更新失败不影响离线阅读。
+
+### 个人资料与模型
+
+- 按需管理六类个人资料和答复偏好。
+- 配置、测试或删除 OpenAI 兼容模型连接；可设置每日请求次数和单次答复长度上限。
+- 导出或恢复加密备份；恢复后需重新填写模型连接。
+
+## 隐私与边界
+
+- 没有账号、云同步、模型代理、远程分析或广告追踪。
+- 指南搜索和阅读在设备本地完成。
+- 咨询仅发送本次问题、相关指南，以及用户主动选择的最小必要资料给已配置模型。
+- API Key 保存于系统安全存储，页面不回显，也不会包含在备份中。
+- 敏感输入会在本地提示删除后再提交。
+
+## 本地运行
+
+需要 Flutter SDK 和 Android SDK。
 
 ```sh
 flutter pub get
@@ -34,18 +61,30 @@ flutter analyze
 flutter build apk --debug
 ```
 
-调试 APK 使用调试签名，仅供测试安装。若 Windows 工程路径含中文，可用 `subst` 将工程的父目录映射为空闲盘符，从映射盘符下的工程子目录运行构建命令；本项目已按此方式成功构建。构建结束后运行 `subst R: /D` 解除映射（将 `R:` 换成实际使用的盘符）。
+调试 APK 位于 `build/app/outputs/flutter-apk/app-debug.apk`，仅用于测试安装。
 
-## 内置指南
+Windows 下，Flutter 当前工具链无法在含中文的工程路径稳定构建 Android 调试包。将工程父目录映射到空闲盘符后，在映射盘符中的工程目录运行上述命令即可。完整步骤见 [ANDROID-BUILD-WINDOWS.md](ANDROID-BUILD-WINDOWS.md)。
 
-`assets/guide.json` 从 [HowToLiveBetter](https://github.com/eternity4719/HowToLiveBetter) 的固定提交 `b4048d14960fec19c0367f8c0e6891f2b038c7ef` 中 `book/` 目录生成，包含 657 条指南条目。版本号和来源保留在包内。
+## 项目结构
 
-使用该提交的源码目录重新生成：
-
-```sh
-dart run tool/build_guide.dart <source-repo>/book assets/guide.json
+```text
+lib/       Flutter 应用代码
+assets/    内置指南、界面资源与 README 截图
+test/      自动化测试
+tool/      指南构建脚本
+android/   Android 平台工程
 ```
 
-指南正文版权归原项目作者所有，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 使用。原项目：[eternity4719/HowToLiveBetter](https://github.com/eternity4719/HowToLiveBetter)。
+## 内置指南与署名
 
-更新包须位于官方 Release，资产名为 `guide.json`，包内 `version` 须与 Release 标签一致，并保留项目署名、许可和完整条目字段。2026-10-05 官方可见的 `epub-latest` Release 仅提供 EPUB、HTML、PDF，暂时没有兼容的指南包。
+`assets/guide.json` 基于 [HowToLiveBetter](https://github.com/eternity4719/HowToLiveBetter) 的固定提交 `b4048d14960fec19c0367f8c0e6891f2b038c7ef` 生成，保留项目署名、版本和许可信息。
+
+指南正文版权归原项目作者所有，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 使用。如需重新生成指南包：
+
+```sh
+dart run tool/build_guide.dart <HowToLiveBetter 仓库>/book assets/guide.json
+```
+
+## 当前状态
+
+自动化测试与静态检查已通过，Android 调试包已构建。真机外观和交互仍建议在目标设备上复核。

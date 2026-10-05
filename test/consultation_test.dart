@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -98,6 +99,15 @@ class SuccessfulService extends ConsultationService {
       DecisionAnswer.parse(modelAnswer(), guide.entries);
 }
 
+class PendingClarificationService extends SuccessfulService {
+  final result = Completer<List<ProfileClarification>>();
+
+  @override
+  Future<List<ProfileClarification>> clarify(
+          String question, GuidePackage guide) =>
+      result.future;
+}
+
 class InferenceService extends ConsultationService {
   InferenceService()
       : super(ModelClient(FakeModelStore('https://example.com/v1')));
@@ -144,6 +154,17 @@ class PersonalizedService extends ConsultationService {
       usedProfileFields: selectedProfile.keys.toList(),
     );
   }
+}
+
+class MultipleClarificationsService extends PersonalizedService {
+  @override
+  Future<List<ProfileClarification>> clarify(
+          String question, GuidePackage guide) async =>
+      [
+        const ProfileClarification(ProfileCategory.health, '是否有健康限制？'),
+        const ProfileClarification(ProfileCategory.workAndFinance, '预算是多少？'),
+        const ProfileClarification(ProfileCategory.goals, '当前目标是什么？'),
+      ];
 }
 
 class InvalidClarificationService extends PersonalizedService {
@@ -275,9 +296,26 @@ void main() {
     expect(find.text('拨打 120 急救'), findsOneWidget);
     expect(find.text('拨打 110 报警'), findsOneWidget);
     expect(find.text('拨打 119 消防'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.bySemanticsLabel('欢迎小章鱼'), findsNothing);
+    expect(find.bySemanticsLabel('思考中的小章鱼'), findsNothing);
+    expect(find.bySemanticsLabel('完成的小章鱼'), findsNothing);
+    expect(tester.getTopLeft(find.text('分流结果：紧急风险')).dy,
+        lessThan(tester.getTopLeft(find.text('修改问题')).dy));
+    expect(
+        tester
+            .getSize(find.ancestor(
+              of: find.text('拨打 120 急救'),
+              matching:
+                  find.byWidgetPredicate((widget) => widget is FilledButton),
+            ))
+            .height,
+        greaterThanOrEqualTo(48));
     expect(store.calls, 0);
     expect(profiles.loads, 0);
 
+    await tester.tap(find.text('修改问题'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '旁边起大火了怎么办');
     await tester.tap(find.text('开始分析'));
     await tester.pump();
@@ -291,6 +329,78 @@ void main() {
         findsOneWidget);
     expect(store.calls, 0);
     expect(profiles.loads, 0);
+  });
+
+  testWidgets('减少动效时等待状态有文字且不推动页面内容', (tester) async {
+    final service = PendingClarificationService();
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(disableAnimations: true),
+        child: child!,
+      ),
+      home: Scaffold(
+        body: ConsultationScreen(
+          guide: guide,
+          service: service,
+          draftStore: MemoryDrafts(),
+          onBrowseGuide: () {},
+          onOpenEntry: (_, __) {},
+        ),
+      ),
+    ));
+    final examplesPosition = tester.getTopLeft(find.text('试试这样提问')).dy;
+    await tester.enterText(find.byType(TextField), '下午喝咖啡好吗');
+    await tester.tap(find.text('开始分析'));
+    await tester.pump();
+    expect(find.text('正在分析'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(tester.getTopLeft(find.text('试试这样提问')).dy, examplesPosition);
+    service.result.complete([]);
+    await tester.pumpAndSettle();
+    expect(find.text('给你的建议'), findsOneWidget);
+  });
+
+  testWidgets('小屏大字时紧急行动避开安全区并可滚动到求助按钮', (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          padding: const EdgeInsets.only(top: 24, bottom: 24),
+          textScaler: const TextScaler.linear(1.8),
+        ),
+        child: child!,
+      ),
+      home: Scaffold(
+        body: ConsultationScreen(
+          guide: guide,
+          service: SuccessfulService(),
+          draftStore: MemoryDrafts(),
+          onBrowseGuide: () {},
+          onOpenEntry: (_, __) {},
+        ),
+      ),
+    ));
+    await tester.enterText(find.byType(TextField), '我胸痛、呼吸困难，现在怎么办');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.scrollUntilVisible(find.text('开始分析'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始分析'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(tester.getTopLeft(find.text('分流结果：紧急风险')).dy,
+        greaterThanOrEqualTo(24));
+    await tester.scrollUntilVisible(find.text('拨打 119 消防'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(tester.getBottomLeft(find.text('拨打 119 消防')).dy,
+        lessThanOrEqualTo(616));
   });
 
   testWidgets('医疗问题显示专业求助方向并跳过普通澄清', (tester) async {
@@ -606,7 +716,15 @@ void main() {
     await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
     expect(find.text('是否有健康限制？'), findsOneWidget);
+    expect(find.bySemanticsLabel('思考中的小章鱼'), findsOneWidget);
+    expect(find.text('原问题'), findsOneWidget);
+    expect(find.text('我该如何运动？'), findsOneWidget);
+    expect(find.text('第 1 题，共 1 题'), findsOneWidget);
     expect(find.text('避免剧烈运动'), findsNothing);
+    await tester.tap(find.text('暂不提供'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('继续获得答复'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('继续获得答复'));
     await tester.pumpAndSettle();
     expect(service.received, isEmpty);
@@ -620,9 +738,13 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '我该如何运动？');
     await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(CheckboxListTile));
+    await tester.tap(find.text('提供资料'));
     await tester.pumpAndSettle();
     expect(find.text('避免剧烈运动'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('继续获得答复'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('继续获得答复'));
     await tester.pumpAndSettle();
     expect(service.received, {ProfileCategory.health: '避免剧烈运动'});
@@ -630,8 +752,81 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('指南引用与未知信息'));
     await tester.pumpAndSettle();
-    expect(find.text('健康限制'), findsOneWidget);
     expect(find.textContaining('指南未覆盖个人情况'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('本次使用的资料'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -200));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本次使用的资料'));
+    await tester.pumpAndSettle();
+    expect(find.text('健康限制'), findsOneWidget);
+  });
+
+  testWidgets('澄清逐题显示进度，未选资料不会发送', (tester) async {
+    final service = MultipleClarificationsService();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConsultationScreen(
+      guide: guide,
+      service: service,
+      profileStore: MemoryProfiles({ProfileCategory.health: '避免剧烈运动'}),
+      draftStore: MemoryDrafts(),
+      onBrowseGuide: () {},
+      onOpenEntry: (_, __) {},
+    ))));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '我该如何运动？');
+    await tester.tap(find.text('开始分析'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 1 题，共 3 题'), findsOneWidget);
+    expect(find.text('预算是多少？'), findsNothing);
+    await tester.scrollUntilVisible(find.text('下一题'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下一题'));
+    await tester.pumpAndSettle();
+    expect(find.text('请选择是否提供这项资料。'), findsOneWidget);
+    await tester.tap(find.text('提供资料'));
+    await tester.pumpAndSettle();
+    expect(find.text('避免剧烈运动'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('下一题'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下一题'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 2 题，共 3 题'), findsOneWidget);
+    expect(find.text('预算是多少？'), findsOneWidget);
+    await tester.ensureVisible(find.text('上一题'));
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('上一题'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 1 题，共 3 题'), findsOneWidget);
+    expect(find.text('避免剧烈运动'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('下一题'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下一题'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('暂不提供'));
+    await tester.scrollUntilVisible(find.text('下一题'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下一题'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 3 题，共 3 题'), findsOneWidget);
+    await tester.tap(find.text('暂不提供'));
+    await tester.scrollUntilVisible(find.text('继续获得答复'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续获得答复'));
+    await tester.pumpAndSettle();
+    expect(service.received, {ProfileCategory.health: '避免剧烈运动'});
   });
 
   testWidgets('失败保留加密草稿入口，重进咨询页仍可重试', (tester) async {
@@ -706,7 +901,7 @@ void main() {
     expect(drafts.value, '要不要换一份远程工作？');
   });
 
-  testWidgets('答复默认只展开前两项，引用可展开查看', (tester) async {
+  testWidgets('答复优先展示结论与行动，详情默认折叠并可查看', (tester) async {
     final drafts = MemoryDrafts()..value = '下午喝咖啡好吗';
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -720,9 +915,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('开始分析'));
     await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('完成的小章鱼'), findsOneWidget);
+    expect(find.text('给你的建议'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
     expect(find.text('下午少喝咖啡'), findsOneWidget);
     expect(find.text('今天下午改喝水'), findsOneWidget);
+    expect(find.text('保存这个决定'), findsOneWidget);
+    expect(find.text('修改问题'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('结论')).dy,
+        lessThan(tester.getTopLeft(find.text('保存这个决定')).dy));
     expect(find.text('指南提到睡眠影响'), findsNothing);
+    expect(find.text('未知信息'), findsNothing);
     expect(drafts.value, isNull);
     await tester.tap(find.text('理由或证据'));
     await tester.pumpAndSettle();
@@ -735,6 +938,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('下午不要喝咖啡'), findsOneWidget);
     expect(find.textContaining('版本 v1'), findsOneWidget);
+    expect(find.text('未知信息'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('本次使用的资料'), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -200));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本次使用的资料'));
+    await tester.pumpAndSettle();
+    expect(find.text('无'), findsOneWidget);
+  });
+
+  testWidgets('答复页可返回修改原问题', (tester) async {
+    final drafts = MemoryDrafts()..value = '下午喝咖啡好吗';
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: ConsultationScreen(
+      guide: guide,
+      service: SuccessfulService(),
+      draftStore: drafts,
+      onBrowseGuide: () {},
+      onOpenEntry: (_, __) {},
+    ))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始分析'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('修改问题'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, '你的问题'), findsOneWidget);
+    expect(find.text('下午喝咖啡好吗'), findsOneWidget);
+    expect(find.text('给你的建议'), findsNothing);
   });
 
   testWidgets('无指南依据的答复直接标明模型推断', (tester) async {
